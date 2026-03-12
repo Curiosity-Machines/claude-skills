@@ -12,7 +12,7 @@ install: >
   global use. In Claude Code CLI: /loop-dev will invoke it.
 
   Quick install (global):
-    curl -sL https://gist.githubusercontent.com/michaelatdopple/4ff90dd0aac5c03217fba861987d6c0b/raw/loop-dev.md \
+    curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev.md \
       -o ~/.claude/commands/loop-dev.md
 ---
 
@@ -25,7 +25,7 @@ install: >
 | Model | Qualcomm Panda, Android 14 |
 | Screen | 800×800px circular, 320 DPI |
 | Physical form | Round display + handle — like a magnifying glass |
-| Serial | Dynamic — always run `droid devices` |
+| Serial | Dynamic — always run `adb devices` |
 
 The Loop is **not a phone on a stick**. It has a round display, a handle, and physical buttons on the front and rear of the handle. Design for it accordingly.
 
@@ -285,38 +285,39 @@ el.addEventListener('touchend', () => {
 ## Build + Deploy
 
 ```bash
-# Build (orbital delegates to gradle on host — no local Android SDK needed)
-orbital build /home/claude/gt/native_webview/crew/babbage assembleDebug --sign aosp
+# Build
+./gradlew assembleDebug
 
 # Install
 SERIAL=$(adb devices | awk 'NR==2{print $1}')
-adb -s $SERIAL install -r build/outputs/apk/debug/*.apk
+adb -s $SERIAL install -r app/build/outputs/apk/debug/*.apk
 
 # Launch (gallery)
-droid start-activity --component com.dopple.webview/.MainActivity
+adb -s $SERIAL shell am start -n com.dopple.webview/.MainActivity
 
 # Launch a specific game directly
-droid start-activity --action android.intent.action.VIEW \
-  --data "dopple://launch?manifest=http://127.0.0.1:8088/games/<name>/manifest.json"
+adb -s $SERIAL shell am start \
+  -a android.intent.action.VIEW \
+  -d "dopple://launch?manifest=http://127.0.0.1:8088/games/<name>/manifest.json"
+
+# Screenshot
+adb -s $SERIAL shell screencap -p /sdcard/screen.png
+adb -s $SERIAL pull /sdcard/screen.png ./screen.png
 
 # Verify SDK via WebView DevTools (CDP over adb)
-# Find the WebView devtools socket:
-SERIAL=$(adb devices | awk 'NR==2{print $1}')
+# 1. Find the WebView devtools socket name:
 adb -s $SERIAL shell cat /proc/net/unix | grep webview_devtools
-# Forward it to localhost:
+# 2. Forward to localhost (replace <PID> with process ID from above):
 adb -s $SERIAL forward tcp:9222 localabstract:webview_devtools_remote_<PID>
-# Then run JS via the CDP /json endpoint + WebSocket, or use a helper:
-curl -s http://localhost:9222/json | python3 -m json.tool   # list targets
-# To evaluate JS (requires a CDP WebSocket client — use chrome://inspect on host, or curl+wscat):
+# 3. List open WebView targets:
+curl -s http://localhost:9222/json | python3 -m json.tool
+# 4. Open chrome://inspect in Chrome on the host to run JS interactively, or use wscat:
 #   Loop.isAvailable()       → true
 #   Loop.version             → "1.3.0"
 #   Loop.motion.getStatus()  → { active, frequencyHz, smoothingAlpha, ... }
 #   Loop.haptics.getStatus() → { available, hasAmplitudeSupport }
 #   Loop.ble.getState()      → "idle"
 #   Loop.pack.getStatus()    → { ready, state }
-
-# Screenshot
-droid capture
 ```
 
 ## Game File Structure
