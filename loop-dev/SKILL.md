@@ -15,11 +15,17 @@ description: >
 
 ```bash
 # Global install (Claude Code CLI: /loop-dev)
-curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev.md \
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev/SKILL.md \
   -o ~/.claude/commands/loop-dev.md
 ```
 
 Or copy to your project's `.claude/commands/loop-dev.md` for project-local use.
+
+**TypeScript types** — copy `references/loop-sdk-dx.d.ts` to your project for full TS support:
+```bash
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev/references/loop-sdk-dx.d.ts \
+  -o loop-sdk-dx.d.ts
+```
 
 ## Device & Form Factor
 
