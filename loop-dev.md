@@ -1,22 +1,25 @@
 ---
+name: loop-dev
 description: >
   Use when building WebView activities, games, or SDK integrations for the Loop
-  hardware device. Encodes all hardware constraints, SDK patterns, build toolchain,
-  and design rules so they don't need to be rediscovered each session. Trigger on:
-  "build a game", "add SDK feature", "build for Loop", "WebView activity", or any
-  work targeting the panda device.
-
-install: >
-  To install this skill in Claude Code, copy this file to your project's
-  .claude/commands/loop-dev.md or to ~/.claude/commands/loop-dev.md for
-  global use. In Claude Code CLI: /loop-dev will invoke it.
-
-  Quick install (global):
-    curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev.md \
-      -o ~/.claude/commands/loop-dev.md
+  hardware device (Qualcomm Panda, Android 14, 800×800px circular display). Covers
+  hardware constraints, SDK patterns, build toolchain, design rules, and complete
+  type reference. Trigger on: "build a game", "add SDK feature", "build for Loop",
+  "WebView activity", motion controls, haptics, BLE multiplayer, IMU, or any work
+  targeting the panda device. Always invoke this skill before writing any Loop game code.
 ---
 
 # Loop Hardware Development Reference
+
+## Install
+
+```bash
+# Global install (Claude Code CLI: /loop-dev)
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev.md \
+  -o ~/.claude/commands/loop-dev.md
+```
+
+Or copy to your project's `.claude/commands/loop-dev.md` for project-local use.
 
 ## Device & Form Factor
 
@@ -113,85 +116,130 @@ if (Loop.motion)  { Loop.motion.start({ frequency: 60, smoothing: 0.1 }); }
 
 **Namespace listeners are lazy-initialized.** The first call to `.on()` registers a single global window event listener internally. No explicit subscribe/init is needed before calling `.on()`.
 
-**`loop:ready` fires after all native bridge objects are injected.** If you wait for `loop:ready` before calling any SDK method you will always have a consistent state.
+**`loop:ready` fires after all native bridge objects are injected.** Waiting for `loop:ready` before calling any SDK method guarantees a consistent state.
 
 ## SDK Type Reference
 
-Source: `sdk/loop-sdk-dx.d.ts` — authoritative. Condensed below for quick reference.
+Source of truth: `sdk/loop-sdk-dx.d.ts` (v1.3.0). Full types below.
 
 ```ts
-// Core types
+// ── Core ─────────────────────────────────────────────────────────────────
 interface Vector3    { x: number; y: number; z: number; }
 interface Quaternion { x: number; y: number; z: number; w: number; }
 
-// Motion
+// ── Motion ───────────────────────────────────────────────────────────────
+interface MotionOptions {
+  frequency?: number;   // Hz, 1–240 (default 60)
+  smoothing?: number;   // 0.0=max smooth, 1.0=raw (default 0.1)
+}
 interface MotionData {
   gravity: Vector3; smoothGravity: Vector3; orientation: Quaternion;
   delta: Vector3; timestamp: number; sequenceNumber: number;
 }
+interface MotionStatus {
+  active: boolean; subscriptions: number;
+  frequencyHz: number; smoothingAlpha: number; paused: boolean;
+}
 interface MotionSubscription {
+  readonly id: string; readonly active: boolean;
   on(event: 'data', handler: (data: MotionData) => void): this;
+  off(event: 'data', handler: (data: MotionData) => void): this;
   stop(): void;
 }
 interface MotionAPI {
   isSupported(): boolean;
-  start(options?: { frequency?: number; smoothing?: number }): Promise<MotionSubscription>;
-  getStatus(): { active: boolean; frequencyHz: number; smoothingAlpha: number };
+  start(options?: MotionOptions): Promise<MotionSubscription>;
+  setFrequency(hz: number): MotionAPI;      // chainable
+  setSmoothingAlpha(alpha: number): MotionAPI;  // chainable
+  getStatus(): MotionStatus;
   getLatest(): MotionData | null;
   stopAll(): void;
 }
 
-// Buttons
-type ButtonId    = 'A' | 'B' | 'C';
-type ButtonState = 'down' | 'up';
-// ButtonEventType: 'press' | 'release' | 'A' | 'B' | 'C'
+// ── Buttons ──────────────────────────────────────────────────────────────
+type ButtonId        = 'A' | 'B' | 'C';
+type ButtonState     = 'down' | 'up';
+type ButtonEventType = 'press' | 'release' | 'A' | 'B' | 'C';
 interface ButtonEvent { button: ButtonId; state: ButtonState; timestamp: number; sequenceNumber: number; }
-interface ButtonsAPI  { on(event: string, handler: (e: ButtonEvent) => void): void; off(...): void; }
+interface ButtonsAPI  { on(event: ButtonEventType, handler: (e: ButtonEvent) => void): void; off(event: ButtonEventType, handler: (e: ButtonEvent) => void): void; }
 
-// Haptics
+// ── Haptics ──────────────────────────────────────────────────────────────
+interface HapticCurve   { keys: { time: number; value: number; }[]; strength?: number; }
+interface HapticsResult { success: boolean; error?: string; durationMs?: number; }
 interface HapticsAPI {
+  isSupported(): boolean;
   getStatus(): { available: boolean; hasAmplitudeSupport: boolean; };
-  pulse(intensity?: number): { success: boolean; durationMs?: number; };
-  playCurve(curve: { keys: { time: number; value: number; }[] }): { success: boolean; };
-  stop(): { success: boolean; };
+  pulse(intensity?: number): HapticsResult;        // 0.0–1.0
+  playCurve(curve: HapticCurve): HapticsResult;
+  stop(): HapticsResult;
 }
 
-// BLE
+// ── Match (object recognition) ───────────────────────────────────────────
+interface MatchAPI {
+  getStatus(): { ready: boolean; status: string; };
+  isBusy(): boolean;
+  captureFrame(videoElement?: HTMLVideoElement): Promise<{ item: unknown; distance: number; }>;
+}
+
+// ── Pack (asset bundles) ─────────────────────────────────────────────────
+interface PackAPI {
+  getStatus(): { ready: boolean; state: number; };
+  getAsset(packName: string, path: string): Promise<ArrayBuffer>;
+  getModelUrl(itemId: string): Promise<string>;
+  assetExists(packName: string, path: string): boolean;
+  clearCache(): void;
+  getCacheSize(): number;
+}
+
+// ── BLE (multiplayer) ────────────────────────────────────────────────────
 type BLEConnectionState = 'idle' | 'negotiating' | 'hosting' | 'scanning' | 'connecting' | 'connected' | 'reconnecting';
+type BLEEventType = 'message' | 'playerJoined' | 'playerLeft' | 'connected' | 'disconnected' | 'reconnecting' | 'roleResolved';
+interface BLEPlayerInfo { id: string; name: string; }
 interface BLEAPI {
-  createGame(gameId: string, token?: string): string;   // sync, returns token
-  joinGame(hostToken: string, playerName?: string): Promise<{ id: string; name: string; }>;
+  createGame(gameId: string, token?: string): string;  // sync, returns token
+  joinGame(hostToken: string, playerName?: string): Promise<BLEPlayerInfo>;
   playGame(seed: string, playerName?: string, options?: { timeoutMs?: number }): Promise<{ role: string; token: string }>;
   getState(): BLEConnectionState;
   endGame(): void; leaveGame(): void;
   send(data: unknown, options?: { to?: string }): void;
-  on(event: string, handler: Function): void;
-  off(event: string, handler: Function): void;
+  on(event: 'message',     handler: (e: { data: unknown; from: BLEPlayerInfo }) => void): void;
+  on(event: 'playerJoined' | 'playerLeft', handler: (e: { player: BLEPlayerInfo }) => void): void;
+  on(event: 'connected',   handler: (e: { host: BLEPlayerInfo }) => void): void;
+  on(event: 'disconnected', handler: (e: { reason: string }) => void): void;
+  on(event: 'roleResolved', handler: (e: { role: string; token: string }) => void): void;
+  on(event: 'reconnecting', handler: () => void): void;
+  off(event: BLEEventType, handler: Function): void;
 }
 
-// System
+// ── System ───────────────────────────────────────────────────────────────
 interface SystemAPI {
   on(event: 'pause',  handler: (e: { reason: 'sleep' | 'settings' }) => void): void;
   on(event: 'resume', handler: (e: { reason: string; pausedMs: number }) => void): void;
+  off(event: 'pause' | 'resume', handler: Function): void;
 }
 
-// Pack
-interface PackAPI {
-  getStatus(): { ready: boolean; state: number; };
-  getAsset(packName: string, path: string): Promise<ArrayBuffer>;
-  assetExists(packName: string, path: string): boolean;
-  getCacheSize(): number;
-}
-
-// Root
+// ── Root SDK ─────────────────────────────────────────────────────────────
 interface LoopSDK {
   isAvailable(): boolean;
   readonly version: string;
-  readonly motion: MotionAPI; readonly buttons: ButtonsAPI; readonly haptics: HapticsAPI;
-  readonly match: MatchAPI;   readonly pack: PackAPI;     readonly ble: BLEAPI;
+  readonly motion: MotionAPI;   readonly buttons: ButtonsAPI;
+  readonly haptics: HapticsAPI; readonly match: MatchAPI;
+  readonly pack: PackAPI;       readonly ble: BLEAPI;
   readonly system: SystemAPI;
 }
 declare const Loop: LoopSDK;
+
+// ── Custom Window Events (low-level, prefer SDK API) ─────────────────────
+// 'loop:ready'        → { version: string }
+// 'loop:motion'       → MotionData
+// 'loop:button'       → ButtonEvent
+// 'loop:pause'        → { reason: 'sleep' | 'settings' }
+// 'loop:resume'       → { reason: string; pausedMs: number }
+// 'loop:ble:message'  → { data, from: BLEPlayerInfo }
+// 'loop:ble:playerJoined' / 'loop:ble:playerLeft' → { player: BLEPlayerInfo }
+// 'loop:ble:connected' → { host: BLEPlayerInfo }
+// 'loop:ble:disconnected' → { reason: string }
+// 'loop:ble:roleResolved' → { role, token }
 ```
 
 ## SDK Patterns
@@ -202,10 +250,11 @@ declare const Loop: LoopSDK;
 const sub = await Loop.motion.start({ frequency: 60, smoothing: 0.1 });
 sub.on('data', data => {
   // data.orientation: Quaternion { x, y, z, w }  — from gyro + gravity correction
-  // data.smoothGravity: Vector3 { x, y, z }
+  // data.smoothGravity: Vector3 { x, y, z }       — low-pass filtered gravity
+  // data.delta: Vector3                            — frame-to-frame change
   // data.sequenceNumber: number
 });
-sub.stop(); // when done
+sub.stop(); // when done; or Loop.motion.stopAll()
 ```
 
 ### Buttons
@@ -213,23 +262,25 @@ sub.stop(); // when done
 ```js
 Loop.buttons.on('press',   e => { /* e.button 'A'|'B'|'C', e.state 'down' */ });
 Loop.buttons.on('release', e => { /* e.state 'up' */ });
+Loop.buttons.on('A', e => { /* fires on A press/release only */ });
 ```
 
 ### Haptics
 
 ```js
-Loop.haptics.pulse(0.8);                  // 0.0–1.0
+Loop.haptics.pulse(0.8);   // quick pulse at 80% intensity
 
 Loop.haptics.playCurve({
   keys: [
     { time: 0.0, value: 0.0 },
     { time: 0.1, value: 1.0 },
     { time: 1.0, value: 0.0 },
-  ]
+  ],
+  strength: 0.8,  // optional overall multiplier
 });
 ```
 
-### BLE
+### BLE Multiplayer
 
 ```js
 // Host — returns token string synchronously; display it for the joiner
@@ -238,11 +289,16 @@ const token = Loop.ble.createGame('my-game');
 // Join
 await Loop.ble.joinGame(token, 'PlayerName');
 
+// Symmetric role resolution (both devices call this, SDK negotiates)
+const { role, token: myToken } = await Loop.ble.playGame('seed-string', 'PlayerName');
+
 // Events
-Loop.ble.on('message',      e => { /* e.data, e.from */ });
+Loop.ble.on('message',      e => { /* e.data, e.from.id */ });
 Loop.ble.on('playerJoined', e => { /* e.player */ });
+Loop.ble.on('playerLeft',   e => { /* e.player */ });
 Loop.ble.on('connected',    e => { /* e.host */ });
 Loop.ble.on('disconnected', e => { /* e.reason */ });
+Loop.ble.on('roleResolved', e => { /* e.role, e.token */ });
 ```
 
 ### System lifecycle
@@ -303,21 +359,43 @@ adb -s $SERIAL shell am start \
 # Screenshot
 adb -s $SERIAL shell screencap -p /sdcard/screen.png
 adb -s $SERIAL pull /sdcard/screen.png ./screen.png
+```
 
-# Verify SDK via WebView DevTools (CDP over adb)
-# 1. Find the WebView devtools socket name:
+## Debug: CDP / WebView DevTools
+
+Evaluate JS in the running WebView — useful for SDK verification, live state inspection, and rapid iteration without rebuilding.
+
+```bash
+# 1. Find the WebView devtools socket (shows PID in path)
 adb -s $SERIAL shell cat /proc/net/unix | grep webview_devtools
-# 2. Forward to localhost (replace <PID> with process ID from above):
+
+# 2. Forward to localhost (replace <PID> with process ID from above)
 adb -s $SERIAL forward tcp:9222 localabstract:webview_devtools_remote_<PID>
-# 3. List open WebView targets:
+
+# 3. List open WebView targets (get the webSocketDebuggerUrl)
 curl -s http://localhost:9222/json | python3 -m json.tool
-# 4. Open chrome://inspect in Chrome on the host to run JS interactively, or use wscat:
-#   Loop.isAvailable()       → true
-#   Loop.version             → "1.3.0"
-#   Loop.motion.getStatus()  → { active, frequencyHz, smoothingAlpha, ... }
-#   Loop.haptics.getStatus() → { available, hasAmplitudeSupport }
-#   Loop.ble.getState()      → "idle"
-#   Loop.pack.getStatus()    → { ready, state }
+
+# 4a. Interactive: open chrome://inspect in Chrome
+# 4b. Scripted: use wscat or a CDP client
+wscat -c ws://localhost:9222/devtools/page/<TARGET_ID>
+```
+
+**Useful CDP eval commands:**
+```js
+Loop.isAvailable()         // → true
+Loop.version               // → "1.3.0"
+Loop.motion.getStatus()    // → { active, subscriptions, frequencyHz, smoothingAlpha, paused }
+Loop.haptics.getStatus()   // → { available, hasAmplitudeSupport }
+Loop.ble.getState()        // → "idle"
+Loop.pack.getStatus()      // → { ready, state }
+Loop.buttons               // → ButtonsAPI object (check truthy)
+```
+
+**One-liner CDP eval via curl + wscat:**
+```bash
+# Install wscat: npm install -g wscat
+WS=$(curl -s http://localhost:9222/json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['webSocketDebuggerUrl'])")
+echo '{"id":1,"method":"Runtime.evaluate","params":{"expression":"Loop.version"}}' | wscat -c "$WS" --no-color
 ```
 
 ## Game File Structure
