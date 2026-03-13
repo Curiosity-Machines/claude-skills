@@ -14,8 +14,12 @@ description: >
 ## Install
 
 ```bash
-# Global install (Claude Code CLI: /loop-dev)
+# Latest (from main)
 curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev/SKILL.md \
+  -o ~/.claude/commands/loop-dev.md
+
+# Pinned to a release (replace tag as needed)
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/v0.0.3-alpha/loop-dev/SKILL.md \
   -o ~/.claude/commands/loop-dev.md
 ```
 
@@ -26,6 +30,8 @@ Or copy to your project's `.claude/commands/loop-dev.md` for project-local use.
 curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main/loop-dev/references/loop-sdk-dx.d.ts \
   -o loop-sdk-dx.d.ts
 ```
+
+Releases: https://github.com/Curiosity-Machines/claude-skills/releases
 
 ## Device & Form Factor
 
