@@ -239,8 +239,6 @@ interface StorageAPI {
 
 // ── System ───────────────────────────────────────────────────────────────
 interface SystemAPI {
-  isFreeRotateEnabled(): boolean;
-  setFreeRotate(enabled: boolean): { success: boolean };
   on(event: 'pause',  handler: (e: { reason: 'sleep' | 'settings' }) => void): void;
   on(event: 'resume', handler: (e: { reason: string; pausedMs: number }) => void): void;
   off(event: 'pause' | 'resume', handler: Function): void;
@@ -372,24 +370,6 @@ Loop.system.on('pause',  e => { /* e.reason: 'sleep' | 'settings' */ });
 Loop.system.on('resume', e => { /* e.reason, e.pausedMs */ });
 ```
 
-### Display rotation (free rotate)
-
-```js
-// Query whether display auto-rotation is enabled
-const rotating = Loop.system.isFreeRotateEnabled();
-
-// Lock rotation for a game that needs fixed orientation
-const result = Loop.system.setFreeRotate(false);
-if (result.success) {
-  console.log('Rotation locked');
-}
-
-// Re-enable (or just let native restore — game exit auto-restores)
-Loop.system.setFreeRotate(true);
-```
-
-**Native auto-restore:** The native layer saves rotation state when a game opens and restores it on game exit. Games don't need to clean up. The settings overlay also saves/restores independently — opening settings disables rotation, closing it restores the pre-settings state.
-
 ## Rim Swipe Gesture
 
 Touch zone: r >= 320px from center (400, 400). Gestures inside r < 320px are ignored.
@@ -471,7 +451,7 @@ Loop.haptics.getStatus()   // → { available, hasAmplitudeSupport }
 Loop.ble.getState()        // → "idle"
 Loop.pack.getStatus()      // → { ready, state }
 Loop.buttons               // → ButtonsAPI object (check truthy)
-Loop.system.isFreeRotateEnabled() // → true/false
+Loop.storage.getUsage()    // → { used, quota }
 ```
 
 **One-liner CDP eval via curl + wscat:**
