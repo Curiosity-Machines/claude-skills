@@ -20,7 +20,7 @@ curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main
   -o ~/.claude/commands/loop-dev.md
 
 # Pinned to a release (replace tag as needed)
-curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/v0.0.4-alpha/loop-dev/SKILL.md \
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/v0.0.4/loop-dev/SKILL.md \
   -o ~/.claude/commands/loop-dev.md
 ```
 
