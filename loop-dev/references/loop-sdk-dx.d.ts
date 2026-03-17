@@ -259,6 +259,8 @@ interface SystemResumeEvent {
 type SystemEventType = 'pause' | 'resume';
 
 interface SystemAPI {
+    isFreeRotateEnabled(): boolean;
+    setFreeRotate(enabled: boolean): { success: boolean };
     on(event: 'pause', handler: (detail: SystemPauseEvent) => void): void;
     on(event: 'resume', handler: (detail: SystemResumeEvent) => void): void;
     off(event: SystemEventType, handler: Function): void;
