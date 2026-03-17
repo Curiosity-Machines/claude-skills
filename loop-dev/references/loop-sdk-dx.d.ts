@@ -7,7 +7,7 @@
  * for accessing device motion, button input, haptic feedback, object matching,
  * asset packs, and BLE multiplayer.
  *
- * @version 1.3.0
+ * @version 1.4.0
  * @license MIT
  */
 
@@ -221,6 +221,29 @@ interface BLEAPI {
     off(event: BLEEventType, handler: Function): void;
 }
 
+// ==================== Storage Types ====================
+
+interface StorageResult {
+    success: boolean;
+    error?: string;
+}
+
+interface StorageUsage {
+    /** Bytes currently used */
+    used: number;
+    /** Maximum bytes allowed (1048576 = 1MB) */
+    quota: number;
+}
+
+interface StorageAPI {
+    setItem(key: string, value: string): StorageResult;
+    getItem(key: string): string | null;
+    removeItem(key: string): StorageResult;
+    clear(): StorageResult;
+    keys(): string[];
+    getUsage(): StorageUsage;
+}
+
 // ==================== System Types ====================
 
 interface SystemPauseEvent {
@@ -235,8 +258,6 @@ interface SystemResumeEvent {
 type SystemEventType = 'pause' | 'resume';
 
 interface SystemAPI {
-    isFreeRotateEnabled(): boolean;
-    setFreeRotate(enabled: boolean): { success: boolean };
     on(event: 'pause', handler: (detail: SystemPauseEvent) => void): void;
     on(event: 'resume', handler: (detail: SystemResumeEvent) => void): void;
     off(event: SystemEventType, handler: Function): void;
@@ -253,6 +274,7 @@ interface LoopSDK {
     readonly match: MatchAPI;
     readonly pack: PackAPI;
     readonly ble: BLEAPI;
+    readonly storage: StorageAPI;
     readonly system: SystemAPI;
 }
 
