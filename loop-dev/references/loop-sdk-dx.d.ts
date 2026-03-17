@@ -242,6 +242,7 @@ interface StorageAPI {
     clear(): StorageResult;
     keys(): string[];
     getUsage(): StorageUsage;
+    exists(key: string): boolean;
 }
 
 // ==================== System Types ====================

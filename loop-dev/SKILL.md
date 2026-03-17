@@ -234,6 +234,7 @@ interface StorageAPI {
   clear(): StorageResult;
   keys(): string[];
   getUsage(): StorageUsage;    // { used, quota } in bytes — quota is 1MB
+  exists(key: string): boolean; // lightweight check without reading value
 }
 
 // ── System ───────────────────────────────────────────────────────────────
@@ -335,28 +336,34 @@ Loop.ble.on('roleResolved', e => { /* e.role, e.token */ });
 Loop.storage.setItem('state', JSON.stringify({ level: 3, score: 1250 }));
 const state = JSON.parse(Loop.storage.getItem('state') ?? '{}');
 
-// High scores
+// High scores (use standard schema — gallery reads these natively)
 const scores = JSON.parse(Loop.storage.getItem('scores') ?? '[]');
-scores.push({ name: 'Player', score: 1250, date: Date.now() });
-Loop.storage.setItem('scores', JSON.stringify(scores));
+scores.push({ score: 1250, wave: 7, date: new Date().toISOString().split('T')[0] });
+scores.sort((a, b) => b.score - a.score);
+Loop.storage.setItem('scores', JSON.stringify(scores.slice(0, 10)));
 
 // Named save slots
 Loop.storage.setItem('save:slot1', JSON.stringify(saveData));
 
+// Check existence without reading (efficient for large values)
+if (Loop.storage.exists('save:slot1')) { /* ... */ }
+
 // Quota check (1MB per game)
 const usage = Loop.storage.getUsage();  // { used: 4096, quota: 1048576 }
 
-// Cleanup
+// Cleanup — DESTRUCTIVE: wipes ALL saved data for this game
 Loop.storage.removeItem('save:slot1');
-Loop.storage.clear();  // wipe all keys for this game
+Loop.storage.clear();  // no undo — use with care
 ```
 
 **Key conventions** (follow these in all games):
 - `"state"` — current game state
-- `"scores"` — high scores (JSON array)
+- `"scores"` — high scores array, **standard schema**: `[{ score: number, date: "YYYY-MM-DD", ...extras }]`. The `score` and `date` fields are required for gallery display. Games may add extra fields (e.g. `wave`, `name`).
 - `"save:{slotName}"` — named save slots
 
-**Constraints**: keys max 256 chars, no `/\..` or null bytes. 1MB quota per game. Returns `{ success: false, error: "QUOTA_EXCEEDED" }` when full.
+**Constraints**: keys max 256 chars, no `/\..` or null bytes. 1MB quota per game. Recommended max ~100 keys. Returns `{ success: false, error: "QUOTA_EXCEEDED" }` when full.
+
+**Performance**: All storage methods are **synchronous** — they block the JS thread during file I/O. Fine for kilobyte-sized data (<1ms), but **never call in your game loop / requestAnimationFrame**. Save on transitions (level complete, game over, pause).
 
 ### System lifecycle
 
