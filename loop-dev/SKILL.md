@@ -5,8 +5,9 @@ description: >
   hardware device (Qualcomm Panda, Android 14, 800×800px circular display). Covers
   hardware constraints, SDK patterns, build toolchain, design rules, and complete
   type reference. Trigger on: "build a game", "add SDK feature", "build for Loop",
-  "WebView activity", motion controls, haptics, BLE multiplayer, IMU, or any work
-  targeting the panda device. Always invoke this skill before writing any Loop game code.
+  "WebView activity", motion controls, haptics, BLE multiplayer, IMU, storage,
+  save games, high scores, or any work targeting the panda device. Always invoke
+  this skill before writing any Loop game code.
 ---
 
 # Loop Hardware Development Reference
@@ -19,7 +20,7 @@ curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/main
   -o ~/.claude/commands/loop-dev.md
 
 # Pinned to a release (replace tag as needed)
-curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/v0.0.3-alpha/loop-dev/SKILL.md \
+curl -sL https://raw.githubusercontent.com/Curiosity-Machines/claude-skills/v0.0.4/loop-dev/SKILL.md \
   -o ~/.claude/commands/loop-dev.md
 ```
 
@@ -132,7 +133,7 @@ if (Loop.motion)  { Loop.motion.start({ frequency: 60, smoothing: 0.1 }); }
 
 ## SDK Type Reference
 
-Source of truth: `sdk/loop-sdk-dx.d.ts` (v1.3.0). Full types below.
+Source of truth: `sdk/loop-sdk-dx.d.ts` (v1.4.0). Full types below.
 
 ```ts
 // ── Core ─────────────────────────────────────────────────────────────────
@@ -223,6 +224,19 @@ interface BLEAPI {
   off(event: BLEEventType, handler: Function): void;
 }
 
+// ── Storage (per-game persistence) ───────────────────────────────────────
+interface StorageResult { success: boolean; error?: string; }
+interface StorageUsage  { used: number; quota: number; }  // bytes
+interface StorageAPI {
+  setItem(key: string, value: string): StorageResult;
+  getItem(key: string): string | null;
+  removeItem(key: string): StorageResult;
+  clear(): StorageResult;
+  keys(): string[];
+  getUsage(): StorageUsage;    // { used, quota } in bytes — quota is 1MB
+  exists(key: string): boolean; // lightweight check without reading value
+}
+
 // ── System ───────────────────────────────────────────────────────────────
 interface SystemAPI {
   isFreeRotateEnabled(): boolean;
@@ -239,7 +253,7 @@ interface LoopSDK {
   readonly motion: MotionAPI;   readonly buttons: ButtonsAPI;
   readonly haptics: HapticsAPI; readonly match: MatchAPI;
   readonly pack: PackAPI;       readonly ble: BLEAPI;
-  readonly system: SystemAPI;
+  readonly storage: StorageAPI; readonly system: SystemAPI;
 }
 declare const Loop: LoopSDK;
 
@@ -314,6 +328,42 @@ Loop.ble.on('connected',    e => { /* e.host */ });
 Loop.ble.on('disconnected', e => { /* e.reason */ });
 Loop.ble.on('roleResolved', e => { /* e.role, e.token */ });
 ```
+
+### Storage — per-game persistence
+
+```js
+// Save/load game state
+Loop.storage.setItem('state', JSON.stringify({ level: 3, score: 1250 }));
+const state = JSON.parse(Loop.storage.getItem('state') ?? '{}');
+
+// High scores (use standard schema — gallery reads these natively)
+const scores = JSON.parse(Loop.storage.getItem('scores') ?? '[]');
+scores.push({ score: 1250, wave: 7, date: new Date().toISOString().split('T')[0] });
+scores.sort((a, b) => b.score - a.score);
+Loop.storage.setItem('scores', JSON.stringify(scores.slice(0, 10)));
+
+// Named save slots
+Loop.storage.setItem('save:slot1', JSON.stringify(saveData));
+
+// Check existence without reading (efficient for large values)
+if (Loop.storage.exists('save:slot1')) { /* ... */ }
+
+// Quota check (1MB per game)
+const usage = Loop.storage.getUsage();  // { used: 4096, quota: 1048576 }
+
+// Cleanup — DESTRUCTIVE: wipes ALL saved data for this game
+Loop.storage.removeItem('save:slot1');
+Loop.storage.clear();  // no undo — use with care
+```
+
+**Key conventions** (follow these in all games):
+- `"state"` — current game state
+- `"scores"` — high scores array, **standard schema**: `[{ score: number, date: "YYYY-MM-DD", ...extras }]`. The `score` and `date` fields are required for gallery display. Games may add extra fields (e.g. `wave`, `name`).
+- `"save:{slotName}"` — named save slots
+
+**Constraints**: keys max 256 chars, no `/\..` or null bytes. 1MB quota per game. Recommended max ~100 keys. Returns `{ success: false, error: "QUOTA_EXCEEDED" }` when full.
+
+**Performance**: All storage methods are **synchronous** — they block the JS thread during file I/O. Fine for kilobyte-sized data (<1ms), but **never call in your game loop / requestAnimationFrame**. Save on transitions (level complete, game over, pause).
 
 ### System lifecycle
 
@@ -415,7 +465,7 @@ wscat -c ws://localhost:9222/devtools/page/<TARGET_ID>
 **Useful CDP eval commands:**
 ```js
 Loop.isAvailable()         // → true
-Loop.version               // → "1.3.0"
+Loop.version               // → "1.4.0"
 Loop.motion.getStatus()    // → { active, subscriptions, frequencyHz, smoothingAlpha, paused }
 Loop.haptics.getStatus()   // → { available, hasAmplitudeSupport }
 Loop.ble.getState()        // → "idle"
