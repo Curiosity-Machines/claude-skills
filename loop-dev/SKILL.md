@@ -336,11 +336,9 @@ Loop.ble.on('roleResolved', e => { /* e.role, e.token */ });
 Loop.storage.setItem('state', JSON.stringify({ level: 3, score: 1250 }));
 const state = JSON.parse(Loop.storage.getItem('state') ?? '{}');
 
-// High scores (use standard schema — gallery reads these natively)
-const scores = JSON.parse(Loop.storage.getItem('scores') ?? '[]');
-scores.push({ score: 1250, wave: 7, date: new Date().toISOString().split('T')[0] });
-scores.sort((a, b) => b.score - a.score);
-Loop.storage.setItem('scores', JSON.stringify(scores.slice(0, 10)));
+// Player name persistence
+Loop.storage.setItem('playerName', 'Alice');
+const name = Loop.storage.getItem('playerName'); // → "Alice"
 
 // Named save slots
 Loop.storage.setItem('save:slot1', JSON.stringify(saveData));
@@ -357,13 +355,22 @@ Loop.storage.clear();  // no undo — use with care
 ```
 
 **Key conventions** (follow these in all games):
-- `"state"` — current game state
-- `"scores"` — high scores array, **standard schema**: `[{ score: number, date: "YYYY-MM-DD", ...extras }]`. The `score` and `date` fields are required for gallery display. Games may add extra fields (e.g. `wave`, `name`).
+- `"state"` — current game state (e.g. `{ wins: 3, losses: 1, draws: 0 }`)
+- `"playerName"` — user's display name (used in BLE lobbies, leaderboards)
 - `"save:{slotName}"` — named save slots
 
 **Constraints**: keys max 256 chars, no `/\..` or null bytes. 1MB quota per game. Recommended max ~100 keys. Returns `{ success: false, error: "QUOTA_EXCEEDED" }` when full.
 
 **Performance**: All storage methods are **synchronous** — they block the JS thread during file I/O. Fine for kilobyte-sized data (<1ms), but **never call in your game loop / requestAnimationFrame**. Save on transitions (level complete, game over, pause).
+
+**Real-world example** — the built-in Tic-Tac-Toe demo (`games/tictactoe/`) uses two storage keys:
+
+| Key | Value | When saved |
+|-----|-------|-----------|
+| `"playerName"` | `"Me"` | On name input change |
+| `"state"` | `{ wins: 1, losses: 0, draws: 1 }` | After each game ends |
+
+Stats load on `loop:ready` and render to the menu screen. Results are recorded in `endGame()` — only for active players, not observers.
 
 ### System lifecycle
 
