@@ -136,13 +136,19 @@ function prompt(question: string): Promise<string> {
 /**
  * Login via OAuth.
  * - On desktop: opens browser, local server captures callback automatically.
- * - On headless/container: prints URL, user authenticates elsewhere and pastes
- *   the callback URL back into the terminal (like Claude Code's auth flow).
+ * - On headless/container: prints URL, user authenticates in any browser.
+ *   The callback page shows a short code to paste back into the terminal.
  */
+const SITE_URL = 'https://dopple-studio.pages.dev';
+
 export async function login(): Promise<void> {
   const supabase = createSupabaseClient();
   const headless = isHeadless();
-  const redirectUrl = `http://localhost:${OAUTH_PORT}/callback`;
+  // In headless mode, redirect to the hosted /cli-auth page that shows a code.
+  // On desktop, redirect to localhost where the local server captures it.
+  const redirectUrl = headless
+    ? `${SITE_URL}/cli-auth`
+    : `http://localhost:${OAUTH_PORT}/callback`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'github',
@@ -164,60 +170,60 @@ export async function login(): Promise<void> {
 }
 
 /**
- * Headless login: user opens the URL on any device, authenticates,
- * then pastes the callback URL (which contains tokens in the hash fragment).
+ * Headless login: user opens the auth URL in any browser, signs in,
+ * and gets redirected to the hosted /cli-auth page which shows a short code.
+ * User copies the code and pastes it here.
  */
 async function loginHeadless(supabase: SupabaseClient, authUrl: string): Promise<void> {
   console.log('');
-  console.log('Open this URL in a browser to authenticate:');
+  console.log('Open this URL in any browser to authenticate:');
   console.log('');
   console.log(`  ${authUrl}`);
   console.log('');
-  console.log('After you authorize, your browser will redirect to a localhost URL');
-  console.log('that may not load (that\'s OK). Copy the FULL URL from your browser\'s');
-  console.log('address bar and paste it here.');
+  console.log('After you sign in, you\'ll see a code. Copy and paste it here.');
   console.log('');
 
-  const callbackUrl = await prompt('Paste the callback URL: ');
+  const input = await prompt('Paste code: ');
 
-  if (!callbackUrl) {
-    throw new Error('No URL provided.');
+  if (!input) {
+    throw new Error('No input provided.');
   }
 
-  // Parse tokens from either query params or hash fragment
-  // The URL might look like:
-  //   http://localhost:8976/callback#access_token=...&refresh_token=...
-  //   http://localhost:8976/callback?access_token=...&refresh_token=...
-  let accessToken: string | null = null;
-  let refreshToken: string | null = null;
+  let refreshToken: string;
 
-  try {
-    const parsed = new URL(callbackUrl);
-    // Check query params first
-    accessToken = parsed.searchParams.get('access_token');
-    refreshToken = parsed.searchParams.get('refresh_token');
-
-    // Fall back to hash fragment
-    if (!accessToken && parsed.hash) {
-      const hashParams = new URLSearchParams(parsed.hash.substring(1));
-      accessToken = hashParams.get('access_token');
-      refreshToken = hashParams.get('refresh_token');
+  if (input.startsWith('dopple:')) {
+    // Code format: dopple:<base64-encoded-refresh-token>
+    refreshToken = Buffer.from(input.slice(7), 'base64').toString();
+  } else {
+    // Full URL fallback
+    try {
+      const parsed = new URL(input);
+      let rt = parsed.searchParams.get('refresh_token');
+      if (!rt && parsed.hash) {
+        const hashParams = new URLSearchParams(parsed.hash.substring(1));
+        rt = hashParams.get('refresh_token');
+      }
+      if (!rt) {
+        throw new Error('No refresh token found');
+      }
+      refreshToken = rt;
+    } catch {
+      throw new Error('Invalid input. Paste either the code or the full callback URL.');
     }
-  } catch {
-    throw new Error('Invalid URL. Please paste the full URL from your browser address bar.');
-  }
-
-  if (!accessToken || !refreshToken) {
-    throw new Error(
-      'Could not find tokens in the URL. Make sure you copied the complete URL ' +
-      'including everything after the # symbol.'
-    );
   }
 
   await saveAuthFile({ refresh_token: refreshToken });
 
-  const { data: userData } = await supabase.auth.getUser(accessToken);
-  const email = userData?.user?.email || 'unknown';
+  let email = 'unknown';
+  try {
+    const { data: session } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (session?.session?.access_token) {
+      const { data: userData } = await supabase.auth.getUser(session.session.access_token);
+      email = userData?.user?.email || 'unknown';
+    }
+  } catch {
+    // Network may be unavailable — tokens are saved, that's what matters
+  }
 
   console.log(`\nLogged in as ${email}`);
 }
