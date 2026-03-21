@@ -13,15 +13,12 @@ interface AuthData {
   refresh_token: string;
 }
 
-function getSupabaseEnv(): { url: string; anonKey: string } {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const DEFAULT_SUPABASE_URL = 'https://onljswkegixyjjhpcldn.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ubGpzd2tlZ2l4eWpqaHBjbGRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NDY1MzEsImV4cCI6MjA4MTEyMjUzMX0.MtOk_dTmjvSduX2AW4YzmSwxaACua3B5z3O8gBRPG7k';
 
-  if (!url || !anonKey) {
-    throw new Error(
-      'Missing Supabase credentials. Set SUPABASE_URL and SUPABASE_ANON_KEY (or VITE_ prefixed variants).'
-    );
-  }
+function getSupabaseEnv(): { url: string; anonKey: string } {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
   return { url, anonKey };
 }
@@ -118,7 +115,7 @@ export async function login(): Promise<void> {
   const redirectUrl = `http://localhost:${OAUTH_PORT}/callback`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
+    provider: 'github',
     options: {
       redirectTo: redirectUrl,
       skipBrowserRedirect: true,

@@ -14,12 +14,10 @@ export interface DeployResult {
   qr_url: string;
 }
 
+const DEFAULT_SUPABASE_URL = 'https://onljswkegixyjjhpcldn.supabase.co';
+
 function getSupabaseUrl(): string {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  if (!url) {
-    throw new Error('Missing SUPABASE_URL or VITE_SUPABASE_URL environment variable.');
-  }
-  return url;
+  return process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
 }
 
 /**
