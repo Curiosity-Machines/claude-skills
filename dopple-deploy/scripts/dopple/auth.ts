@@ -137,13 +137,11 @@ function prompt(question: string): Promise<string> {
  * - On headless/container: prints URL, user authenticates in any browser.
  *   The callback page shows a short code to paste back into the terminal.
  */
-const SITE_URL = 'https://dopple-studio.pages.dev';
-
 export async function login(): Promise<void> {
   const supabase = createSupabaseClient();
-  // The /cli-auth page handles OAuth itself (initiates + captures tokens).
-  // CLI just points the user there and waits for the code.
-  const authUrl = `${SITE_URL}/cli-auth`;
+  const { url: supabaseUrl } = getSupabaseEnv();
+  // Edge function handles OAuth flow and shows a paste code
+  const authUrl = `${supabaseUrl}/functions/v1/cli-auth`;
 
   // Open browser if possible, otherwise just print the URL
   const headless = isHeadless();
