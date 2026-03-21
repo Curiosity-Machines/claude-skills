@@ -1,0 +1,44 @@
+{
+  "skill_name": "dopple-deploy",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "deploy this to dopple",
+      "expected_output": "Skill reads dopple.toml, runs dopple deploy, reports manifest URL and QR page URL back to the user",
+      "files": [],
+      "expectations": [
+        "Checks for dopple.toml in the project root",
+        "Runs dopple whoami or checks auth status",
+        "Runs dopple deploy command",
+        "Reports the manifest URL to the user",
+        "Reports the QR page URL to the user"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "deploy this as physics-test and share in #builds",
+      "expected_output": "Skill runs dopple deploy --as physics-test, then posts to #builds Slack channel with QR code and manifest URL",
+      "files": [],
+      "expectations": [
+        "Uses --as flag with the variant name physics-test",
+        "Attempts to post to #builds Slack channel",
+        "Tries Slack MCP first, falls back to webhook if unavailable",
+        "Includes QR page URL in Slack message",
+        "Includes activity name and variant in Slack message"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I just pushed a fix to the particle system, can you ship it to the team?",
+      "expected_output": "Skill recognizes this as a deploy request, runs dopple deploy, and posts to Slack if configured",
+      "files": [],
+      "expectations": [
+        "Recognizes 'ship it to the team' as a deploy + notify request",
+        "Checks for dopple.toml",
+        "Runs dopple deploy",
+        "Attempts Slack notification since user said 'to the team'",
+        "Reports success with URLs"
+      ]
+    }
+  ]
+}
