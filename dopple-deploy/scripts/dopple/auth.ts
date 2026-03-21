@@ -1,14 +1,12 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { execFile } from 'node:child_process';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const AUTH_DIR = join(homedir(), '.dopple');
 const AUTH_FILE = join(AUTH_DIR, 'auth.json');
-const OAUTH_PORT = 8976;
 
 interface AuthData {
   refresh_token: string;
@@ -143,12 +141,10 @@ const SITE_URL = 'https://dopple-studio.pages.dev';
 
 export async function login(): Promise<void> {
   const supabase = createSupabaseClient();
-  const headless = isHeadless();
-  // In headless mode, redirect to the hosted /cli-auth page that shows a code.
-  // On desktop, redirect to localhost where the local server captures it.
-  const redirectUrl = headless
-    ? `${SITE_URL}/cli-auth`
-    : `http://localhost:${OAUTH_PORT}/callback`;
+  // Always use the hosted /cli-auth page for the callback.
+  // It shows a short code the user pastes back into the terminal,
+  // which works everywhere (containers, SSH, desktop).
+  const redirectUrl = `${SITE_URL}/cli-auth`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'github',
@@ -162,11 +158,21 @@ export async function login(): Promise<void> {
     throw new Error(`Failed to initiate OAuth: ${error?.message || 'no URL returned'}`);
   }
 
-  if (headless) {
-    await loginHeadless(supabase, data.url);
-  } else {
-    await loginBrowser(supabase, data.url);
+  // Open browser if possible, otherwise just print the URL
+  const headless = isHeadless();
+  if (!headless) {
+    const platform = process.platform;
+    const openCmd = platform === 'darwin' ? 'open'
+      : platform === 'win32' ? 'start'
+      : 'xdg-open';
+    execFile(openCmd, [data.url], (err) => {
+      if (err) {
+        console.log('Could not open browser automatically.');
+      }
+    });
   }
+
+  await loginHeadless(supabase, data.url);
 }
 
 /**
@@ -228,88 +234,3 @@ async function loginHeadless(supabase: SupabaseClient, authUrl: string): Promise
   console.log(`\nLogged in as ${email}`);
 }
 
-/**
- * Browser login: opens the auth URL and starts a local server to capture the callback.
- */
-async function loginBrowser(supabase: SupabaseClient, authUrl: string): Promise<void> {
-  console.log('Opening browser for login...');
-  console.log(`If the browser does not open, visit: ${authUrl}`);
-
-  const platform = process.platform;
-  const openCmd = platform === 'darwin' ? 'open'
-    : platform === 'win32' ? 'start'
-    : 'xdg-open';
-
-  execFile(openCmd, [authUrl], (err) => {
-    if (err) {
-      console.log('Could not open browser automatically. Please visit the URL above.');
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const server = createServer(async (req, res) => {
-      if (!req.url?.startsWith('/callback')) {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
-      }
-
-      const reqUrl = new URL(req.url, `http://localhost:${OAUTH_PORT}`);
-
-      // Tokens come as hash fragments — serve a relay page to convert to query params
-      if (!reqUrl.searchParams.has('access_token')) {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(`<!DOCTYPE html>
-<html><body><script>
-  const hash = window.location.hash.substring(1);
-  if (hash) {
-    window.location.href = '/callback?' + hash;
-  } else {
-    document.body.textContent = 'Login failed: no tokens received.';
-  }
-</script><p>Completing login...</p></body></html>`);
-        return;
-      }
-
-      const accessToken = reqUrl.searchParams.get('access_token');
-      const refreshToken = reqUrl.searchParams.get('refresh_token');
-
-      if (!accessToken || !refreshToken) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Login failed: missing tokens.');
-        server.close();
-        reject(new Error('Login failed: missing tokens in callback'));
-        return;
-      }
-
-      await saveAuthFile({ refresh_token: refreshToken });
-
-      const { data: userData } = await supabase.auth.getUser(accessToken);
-      const email = userData?.user?.email || 'unknown';
-
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(`<!DOCTYPE html>
-<html><body>
-<h2>Logged in as ${email}</h2>
-<p>You can close this tab.</p>
-</body></html>`);
-
-      console.log(`Logged in as ${email}`);
-      server.close();
-      resolve();
-    });
-
-    server.listen(OAUTH_PORT, () => {
-      // Server is ready
-    });
-
-    server.on('error', (err) => {
-      reject(new Error(`Failed to start auth server on port ${OAUTH_PORT}: ${err.message}`));
-    });
-
-    setTimeout(() => {
-      server.close();
-      reject(new Error('Login timed out after 2 minutes.'));
-    }, 120_000);
-  });
-}
