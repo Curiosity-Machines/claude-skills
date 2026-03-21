@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createServer } from 'node:http';
+import { createInterface } from 'node:readline';
 import { execFile } from 'node:child_process';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
@@ -105,13 +106,42 @@ export async function whoami(tokenFlag?: string): Promise<string> {
 }
 
 /**
- * Interactive browser-based OAuth login.
- * Starts a local HTTP server, opens the browser to the Supabase auth URL,
- * and captures the callback with the session tokens.
+ * Detect if we're in a headless environment (container, SSH, CI, agent).
+ */
+function isHeadless(): boolean {
+  return !!(
+    process.env.SSH_CONNECTION ||
+    process.env.CI ||
+    process.env.CODEX ||
+    process.env.CLAUDE_CODE ||
+    process.env.CONTAINER ||
+    process.env.DOCKER_CONTAINER ||
+    !process.env.DISPLAY && process.platform === 'linux'
+  );
+}
+
+/**
+ * Read a line from stdin.
+ */
+function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+/**
+ * Login via OAuth.
+ * - On desktop: opens browser, local server captures callback automatically.
+ * - On headless/container: prints URL, user authenticates elsewhere and pastes
+ *   the callback URL back into the terminal (like Claude Code's auth flow).
  */
 export async function login(): Promise<void> {
-  const { url } = getSupabaseEnv();
   const supabase = createSupabaseClient();
+  const headless = isHeadless();
   const redirectUrl = `http://localhost:${OAUTH_PORT}/callback`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
@@ -126,22 +156,90 @@ export async function login(): Promise<void> {
     throw new Error(`Failed to initiate OAuth: ${error?.message || 'no URL returned'}`);
   }
 
-  console.log('Opening browser for login...');
-  console.log(`If the browser does not open, visit: ${data.url}`);
+  if (headless) {
+    await loginHeadless(supabase, data.url);
+  } else {
+    await loginBrowser(supabase, data.url);
+  }
+}
 
-  // Open browser using execFile (no shell injection)
+/**
+ * Headless login: user opens the URL on any device, authenticates,
+ * then pastes the callback URL (which contains tokens in the hash fragment).
+ */
+async function loginHeadless(supabase: SupabaseClient, authUrl: string): Promise<void> {
+  console.log('');
+  console.log('Open this URL in a browser to authenticate:');
+  console.log('');
+  console.log(`  ${authUrl}`);
+  console.log('');
+  console.log('After you authorize, your browser will redirect to a localhost URL');
+  console.log('that may not load (that\'s OK). Copy the FULL URL from your browser\'s');
+  console.log('address bar and paste it here.');
+  console.log('');
+
+  const callbackUrl = await prompt('Paste the callback URL: ');
+
+  if (!callbackUrl) {
+    throw new Error('No URL provided.');
+  }
+
+  // Parse tokens from either query params or hash fragment
+  // The URL might look like:
+  //   http://localhost:8976/callback#access_token=...&refresh_token=...
+  //   http://localhost:8976/callback?access_token=...&refresh_token=...
+  let accessToken: string | null = null;
+  let refreshToken: string | null = null;
+
+  try {
+    const parsed = new URL(callbackUrl);
+    // Check query params first
+    accessToken = parsed.searchParams.get('access_token');
+    refreshToken = parsed.searchParams.get('refresh_token');
+
+    // Fall back to hash fragment
+    if (!accessToken && parsed.hash) {
+      const hashParams = new URLSearchParams(parsed.hash.substring(1));
+      accessToken = hashParams.get('access_token');
+      refreshToken = hashParams.get('refresh_token');
+    }
+  } catch {
+    throw new Error('Invalid URL. Please paste the full URL from your browser address bar.');
+  }
+
+  if (!accessToken || !refreshToken) {
+    throw new Error(
+      'Could not find tokens in the URL. Make sure you copied the complete URL ' +
+      'including everything after the # symbol.'
+    );
+  }
+
+  await saveAuthFile({ refresh_token: refreshToken });
+
+  const { data: userData } = await supabase.auth.getUser(accessToken);
+  const email = userData?.user?.email || 'unknown';
+
+  console.log(`\nLogged in as ${email}`);
+}
+
+/**
+ * Browser login: opens the auth URL and starts a local server to capture the callback.
+ */
+async function loginBrowser(supabase: SupabaseClient, authUrl: string): Promise<void> {
+  console.log('Opening browser for login...');
+  console.log(`If the browser does not open, visit: ${authUrl}`);
+
   const platform = process.platform;
   const openCmd = platform === 'darwin' ? 'open'
     : platform === 'win32' ? 'start'
     : 'xdg-open';
 
-  execFile(openCmd, [data.url], (err) => {
+  execFile(openCmd, [authUrl], (err) => {
     if (err) {
-      console.log(`Could not open browser automatically. Please visit the URL above.`);
+      console.log('Could not open browser automatically. Please visit the URL above.');
     }
   });
 
-  // Start local server to capture the callback
   await new Promise<void>((resolve, reject) => {
     const server = createServer(async (req, res) => {
       if (!req.url?.startsWith('/callback')) {
@@ -152,8 +250,7 @@ export async function login(): Promise<void> {
 
       const reqUrl = new URL(req.url, `http://localhost:${OAUTH_PORT}`);
 
-      // The tokens may come as hash fragments, which the browser handles client-side.
-      // Serve a small page that extracts hash params and sends them as query params.
+      // Tokens come as hash fragments — serve a relay page to convert to query params
       if (!reqUrl.searchParams.has('access_token')) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`<!DOCTYPE html>
@@ -179,10 +276,8 @@ export async function login(): Promise<void> {
         return;
       }
 
-      // Save refresh token
       await saveAuthFile({ refresh_token: refreshToken });
 
-      // Get user info
       const { data: userData } = await supabase.auth.getUser(accessToken);
       const email = userData?.user?.email || 'unknown';
 
@@ -206,7 +301,6 @@ export async function login(): Promise<void> {
       reject(new Error(`Failed to start auth server on port ${OAUTH_PORT}: ${err.message}`));
     });
 
-    // Timeout after 2 minutes
     setTimeout(() => {
       server.close();
       reject(new Error('Login timed out after 2 minutes.'));
