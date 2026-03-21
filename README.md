@@ -28,15 +28,21 @@ Once installed, type `/loop-dev` in Claude Code to load the full reference.
 
 Deploy activities to Dopple Studio from the command line. Wraps the `dopple` CLI (bundled) which handles: build, smoke-test (headless Chromium), ZIP, and upload to Supabase via a two-phase edge function. Optionally posts deploy notifications to Slack via MCP.
 
-**Setup:**
+**Install:**
 ```bash
-cd dopple-deploy/scripts/dopple
-npm install && npm run build
+git clone https://github.com/Curiosity-Machines/claude-skills.git
+cd claude-skills/dopple-deploy
+./install.sh
 ```
 
-**Usage** (from a project with `dopple.toml`):
+**First time — authenticate:**
 ```bash
-node <path-to>/dopple-deploy/scripts/dopple/dist/cli.js deploy --no-smoke --token "$DOPPLE_TOKEN"
+dopple login    # opens GitHub OAuth in browser
 ```
 
-See `dopple-deploy/SKILL.md` for full invocation details and Slack integration.
+**Deploy** (from a project with `dopple.toml`):
+```bash
+dopple deploy
+```
+
+See `dopple-deploy/SKILL.md` for full details, `--as` variants, and Slack integration.
