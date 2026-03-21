@@ -141,22 +141,9 @@ const SITE_URL = 'https://dopple-studio.pages.dev';
 
 export async function login(): Promise<void> {
   const supabase = createSupabaseClient();
-  // Always use the hosted /cli-auth page for the callback.
-  // It shows a short code the user pastes back into the terminal,
-  // which works everywhere (containers, SSH, desktop).
-  const redirectUrl = `${SITE_URL}/cli-auth`;
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'github',
-    options: {
-      redirectTo: redirectUrl,
-      skipBrowserRedirect: true,
-    },
-  });
-
-  if (error || !data.url) {
-    throw new Error(`Failed to initiate OAuth: ${error?.message || 'no URL returned'}`);
-  }
+  // The /cli-auth page handles OAuth itself (initiates + captures tokens).
+  // CLI just points the user there and waits for the code.
+  const authUrl = `${SITE_URL}/cli-auth`;
 
   // Open browser if possible, otherwise just print the URL
   const headless = isHeadless();
@@ -165,14 +152,14 @@ export async function login(): Promise<void> {
     const openCmd = platform === 'darwin' ? 'open'
       : platform === 'win32' ? 'start'
       : 'xdg-open';
-    execFile(openCmd, [data.url], (err) => {
+    execFile(openCmd, [authUrl], (err) => {
       if (err) {
         console.log('Could not open browser automatically.');
       }
     });
   }
 
-  await loginHeadless(supabase, data.url);
+  await loginHeadless(supabase, authUrl);
 }
 
 /**
