@@ -20,20 +20,28 @@ fi
 
 # Install dependencies and build
 cd "$CLI_DIR"
-npm install --omit=dev
+npm install
 npm run build
 
-# Link globally
-npm link 2>/dev/null || {
+# Link globally — try npm link first, fall back to ~/bin symlink
+if npm link 2>/dev/null; then
   echo ""
-  echo "Could not link globally (may need sudo)."
-  echo "You can either:"
-  echo "  sudo npm link"
-  echo "  OR add an alias to your shell config:"
-  echo "    alias dopple=\"node $CLI_DIR/dist/cli.js\""
-  exit 0
-}
+  echo "Done! Run 'dopple login' to authenticate with GitHub."
+  echo "Then 'dopple deploy' from any project with a dopple.toml."
+else
+  mkdir -p "$HOME/bin"
+  ln -sf "$CLI_DIR/dist/cli.js" "$HOME/bin/dopple"
 
-echo ""
-echo "Done! Run 'dopple login' to authenticate with GitHub."
-echo "Then 'dopple deploy' from any project with a dopple.toml."
+  if echo "$PATH" | tr ':' '\n' | grep -q "$HOME/bin"; then
+    echo ""
+    echo "Done! Run 'dopple login' to authenticate with GitHub."
+    echo "Then 'dopple deploy' from any project with a dopple.toml."
+  else
+    echo ""
+    echo "Done! Installed to ~/bin/dopple."
+    echo "Add ~/bin to your PATH by adding this to your shell config:"
+    echo "  export PATH=\"\$HOME/bin:\$PATH\""
+    echo ""
+    echo "Then run 'dopple login' to authenticate with GitHub."
+  fi
+fi
